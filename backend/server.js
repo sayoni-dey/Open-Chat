@@ -3,7 +3,8 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import { clerkMiddleware } from '@clerk/express';
 import connectDB from './config/db.js';
-import { requireAuth } from './middleware/auth.js';
+import { requireAuth } from './middleware/auth.middleware.js';
+import webhookRoutes from './routes/webhooks.routes.js';
 
 dotenv.config();
 
@@ -15,8 +16,8 @@ connectDB();
 
 // Global Middleware Configuration
 app.use(cors({ origin: 'http://localhost:3000', credentials: true })); 
+app.use('/api/webhooks', webhookRoutes);
 app.use(express.json());
-
 // Global Clerk Interceptor (Exposes authorization states across all endpoints)
 app.use(clerkMiddleware());
 
@@ -34,5 +35,5 @@ app.get('/api/user/chats', requireAuth, async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🖥️  Backend server online on port ${PORT}`);
+  console.log(`Backend server online on port ${PORT}`);
 });

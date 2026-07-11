@@ -4,7 +4,7 @@ const UserSchema = new mongoose.Schema({
   clerkId: {
     type: String,
     required: true,
-    unique: true, // Used to link with Clerk's authentication identifier
+    unique: true, 
   },
   email: {
     type: String,
@@ -19,6 +19,6 @@ const UserSchema = new mongoose.Schema({
   },
 });
 
-const Chat = mongoose.model("User", UserSchema);
+const User = mongoose.models.User || mongoose.model("User", UserSchema);
 
-export default UserSchema;
+export default User;
