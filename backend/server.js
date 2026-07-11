@@ -1,24 +1,38 @@
-import express from "express";
-import cors from "cors";
-import "dotenv/config";
-import mongoose from  "mongoose";
+import express from 'express';
+import dotenv from 'dotenv';
+import cors from 'cors';
+import { clerkMiddleware } from '@clerk/express';
+import connectDB from './config/db.js';
+import { requireAuth } from './middleware/auth.js';
+
+dotenv.config();
 
 const app = express();
-const PORT = 8080;
+const PORT = process.env.PORT || 5000;
 
+// Connect to MongoDB Atlas
+connectDB();
+
+// Global Middleware Configuration
+app.use(cors({ origin: 'http://localhost:3000', credentials: true })); 
 app.use(express.json());
-app.use(cors());
 
-const connectDb = async() => {
-    try {
-        await mongoose.connect(process.env.MONGODB_URI)
-        console.log("Connected to Database")
-    }catch(err){
-        console.log( "Failed to connect ", err)
-    }
-}
+// Global Clerk Interceptor (Exposes authorization states across all endpoints)
+app.use(clerkMiddleware());
+
+// Public Route (Accessible by anyone)
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'active' });
+});
+
+// Protected Route Example (Only accessible if logged in via Next.js)
+app.get('/api/user/chats', requireAuth, async (req, res) => {
+  res.json({
+    message: 'Secure data accessed successfully!',
+    authenticatedClerkId: req.userId // Automatically fetched from token validation
+  });
+});
 
 app.listen(PORT, () => {
-    console.log(`app is listening on port ${PORT}`);
-    connectDb();
+  console.log(`🖥️  Backend server online on port ${PORT}`);
 });
