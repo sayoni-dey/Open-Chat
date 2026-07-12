@@ -5,6 +5,7 @@ import { clerkMiddleware } from '@clerk/express';
 import connectDB from './config/db.js';
 import { requireAuth } from './middleware/auth.middleware.js';
 import webhookRoutes from './routes/webhooks.routes.js';
+import chatRoutes from './routes/chat.route.js';
 
 dotenv.config();
 
@@ -20,6 +21,8 @@ app.use('/api/webhooks', webhookRoutes);
 app.use(express.json());
 // Global Clerk Interceptor (Exposes authorization states across all endpoints)
 app.use(clerkMiddleware());
+
+app.use('/api/chat', chatRoutes);
 
 // Public Route (Accessible by anyone)
 app.get('/api/health', (req, res) => {

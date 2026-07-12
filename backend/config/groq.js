@@ -8,8 +8,6 @@ if (!process.env.GROQ_API_KEY) {
   console.error('Missing GROQ_API_KEY in environment variables.');
 }
 
-const groq = new Groq({
+export const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
-
-export default groq;
