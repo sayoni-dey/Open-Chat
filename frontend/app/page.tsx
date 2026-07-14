@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth, UserButton, SignInButton } from '@clerk/nextjs';
 import { Plus, Search, Send, Square, MessageSquare, Bot, User } from 'lucide-react';
-import Sidebar from './Sidebar';
+import Sidebar from './Sidebar/Sidebar';
 import ChatInput from './ChatInput';
+import Link from "next/link";
+
 // Explicit Type Interfaces for strict TypeScript enforcement
 interface Message {
   sender: 'user' | 'assistant';
@@ -255,19 +257,19 @@ export default function Home() {
     />
 
       {/* MAIN CONSOLE INTERFACE SCREEN */}
-      <main className="flex-1 flex flex-col h-full relative bg-[#212121]">
+      <main className="flex-1 flex flex-col h-full relative bg-white dark:bg-[#212121] transition-colors">
         
         {/* Top Right Header Access Button (Visible only when Anonymous) */}
         {!userId && (
           <header className="absolute top-4 right-4 z-10">
-            <SignInButton mode="modal">
+            <Link href="/sign-in">
               <button className="bg-white text-black px-3.5 py-1.5 text-xs font-semibold rounded-full hover:bg-gray-200 transition-colors shadow-md">
-                Sign In / Register
+                Sign In
               </button>
-            </SignInButton>
+            </Link>
           </header>
         )}
-
+        
         {/* Dynamic Chat Canvas Container Layout */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
           {messages.length === 0 ? (
@@ -275,9 +277,9 @@ export default function Home() {
               <div className="p-3 bg-[#2f2f2f] rounded-full text-gray-400">
                 <Bot size={32} />
               </div>
-              <h1 className="text-xl font-bold text-white tracking-tight">How can I assist your code pipeline today?</h1>
+              <h1 className="text-xl font-bold text-white tracking-tight">Ask Me Anything</h1>
               <p className="text-xs text-gray-400">
-                Powered by Groq's Llama-3.1-8b-instant architecture layer with Redis Token Bucket verification.
+                
               </p>
             </div>
           ) : (

@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { UserButton, SignInButton } from '@clerk/nextjs';
 import { Search, MessageSquare, Menu, X } from 'lucide-react';
-
+import { UserIdentifierFooter } from './UserIdentifier';
 // Define layout property contracts for state syncing
 interface ChatHistoryItem {
   _id: string;
@@ -116,21 +116,7 @@ export default function Sidebar({
           </div>
 
           {/* BOTTOM LEFT: USER IDENTIFIER FOOTER */}
-          <div className="p-3 border-t border-[#2f2f2f] bg-[#171717]">
-            {isLoaded && userId ? (
-              <div className="flex items-center justify-between px-1 w-full">
-                <div className="flex items-center gap-3 min-w-0">
-                  <UserButton />
-                  <span className="text-xs text-gray-400 font-medium truncate">My Account Panel</span>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center p-1 text-xs text-gray-500">
-                Anonymous Session Window
-              </div>
-            )}
-          </div>
-
+          <UserIdentifierFooter/>
         </div>
       </aside>
     </>

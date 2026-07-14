@@ -53,7 +53,7 @@ export default function ChatInput({
         </div>
       </form>
       <div className="text-center text-[10px] text-gray-500 mt-2 tracking-wide">
-        Free Sandbox Access Layer. Upstash Redis verifies anonymous interactions natively.
+        Free Sandbox Access Layer. Powered by Groq's Llama-3.1-8b-instant.
       </div>
     </div>
   );
