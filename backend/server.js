@@ -21,6 +21,10 @@ app.use('/api/webhooks', webhookRoutes);
 app.use(express.json());
 // Global Clerk Interceptor (Exposes authorization states across all endpoints)
 app.use(clerkMiddleware());
+// app.use((req, res, next) => {
+//     console.log(req.method, req.originalUrl);
+//     next();
+// });
 
 app.use('/api/chat', chatRoutes);
 

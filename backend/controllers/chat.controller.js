@@ -5,36 +5,44 @@ import Message from '../models/message.model.js';
 
 export const handleChatStream = async (req, res) => {
   const { prompt, chatId } = req.body;
-  const userId = req.auth?.userId; // Injected by Clerk middleware if logged in
-
+  const userId = req.userId; // Injected by Clerk middleware if logged in
+  if(!userId){
+    console.log(`No user id present`);
+  }
   // ----------------------------------------------------
   // PART 1: ANONYMOUS USER & RATE LIMITING (REDIS)
   // ----------------------------------------------------
   // if (!userId) {
-  //   const ip = req.ip || req.headers['x-forwarded-for'];
-  //   const redisKey = `rate_limit:${ip}`;
+  //   try {
+  //     const ip = req.ip || req.headers['x-forwarded-for'] || 'anonymous_local';
+  //     const redisKey = `rate_limit:${ip}`;
 
-  //   // Increment request count by 1
-  //   const currentRequests = await redis.incr(redisKey);
+  //     // Increment request count by 1
+  //     const currentRequests = await redis.incr(redisKey);
 
-  //   // If it's the first request in the cycle, set expiration window (5 hours = 18000 seconds)
-  //   if (currentRequests === 1) {
-  //     await redis.expire(redisKey, 18000);
-  //   }
+  //     // If it's the first request in the cycle, set expiration window (5 hours = 18000 seconds)
+  //     if (currentRequests === 1) {
+  //       await redis.expire(redisKey, 18000);
+  //     }
 
-  //   if (currentRequests > 5) {
-  //     return res.status(429).json({
-  //       success: false,
-  //       message: "Rate limit exceeded. Please sign in to unlock unlimited chatting!",
-  //     });
+  //     if (currentRequests > 5) {
+  //       return res.status(429).json({
+  //         success: false,
+  //         message: "Rate limit exceeded. Please sign in to unlock unlimited chatting!",
+  //       });
+  //     }
+  //   } catch (redisError) {
+  //     console.error("Redis Rate Limiting Error:", redisError);
+  //     // Fallback: Optional fail-open strategy if Redis fails during local debugging
   //   }
   // }
 
   // ----------------------------------------------------
-  // PART 2: CONVERSATION HISTORY & ENGINE RETRIEVAL
+  // PART 2: CONVERSATION HISTORY & MODEL MATERIALIZATION
   // ----------------------------------------------------
   let activeChatId = chatId;
   let conversationHistory = [];
+  let isNewChat = false;
 
   // If authenticated and continuing a chat session, compile past contexts
   if (userId && activeChatId) {
@@ -45,14 +53,18 @@ export const handleChatStream = async (req, res) => {
     }));
   }
 
-  // Push the current user prompt into the Groq array structure
+  // Push the current user prompt into the historical payload stack for the engine
   conversationHistory.push({ role: 'user', content: prompt });
 
-  // If authenticated, dynamically write the user's incoming message to MongoDB
+  // If authenticated, track and record user inputs into MongoDB
   if (userId) {
     if (!activeChatId) {
-      // Establish a fresh parent chat entry if starting from scratch
-      const newChat = await Chat.create({ userId, title: prompt.substring(0, 30) });
+      isNewChat = true;
+      // Establish a fresh parent chat entry with a temporary placeholder title
+      const newChat = await Chat.create({ 
+        userId, 
+        title: "New Conversation..." 
+      });
       activeChatId = newChat._id;
     }
     await Message.create({ chatId: activeChatId, sender: 'user', text: prompt });
@@ -86,12 +98,39 @@ export const handleChatStream = async (req, res) => {
       res.write(`data: ${JSON.stringify({ chunk: textChunk, chatId: activeChatId })}\n\n`);
     }
 
-    // After the stream wraps up, write the final assistant message to MongoDB if authenticated
+    // After the token stream wraps up, write the final assistant response text block to MongoDB
     if (userId && activeChatId) {
       await Message.create({ chatId: activeChatId, sender: 'assistant', text: completeAiResponse });
+
+      // ----------------------------------------------------
+      // PART 4: ASYNCHRONOUS BACKGROUND TITLE GENERATION
+      // ----------------------------------------------------
+      if (isNewChat) {
+        // Run in background completely out of the critical streaming path
+        Promise.resolve().then(async () => {
+          try {
+            const titleGenResponse = await groq.chat.completions.create({
+              model: "llama-3.1-8b-instant",
+              messages: [
+                {
+                  role: "system",
+                  content: "Summarize the user request into a clean 3 to 5-word title. Return ONLY the title text. Do not add quotes, introductory phrases, or trailing punctuation marks."
+                },
+                { role: "user", content: prompt }
+              ]
+            });
+
+            const cleanTitle = titleGenResponse.choices[0]?.message?.content?.trim() || "New Chat";
+            // Persist the summarized title into the corresponding session record
+            await Chat.findByIdAndUpdate(activeChatId, { title: cleanTitle });
+          } catch (err) {
+            console.error("Background auto-title creation failed:", err);
+          }
+        });
+      }
     }
 
-    // Inform the client that streaming is complete
+    // Inform the client that streaming context has ended cleanly
     res.write('data: [DONE]\n\n');
     res.end();
 
@@ -105,7 +144,8 @@ export const handleChatStream = async (req, res) => {
 
 export const searchChats = async (req, res) => {
   try {
-    const userId = req.auth?.userId;
+    // const userId = req.auth?.userId;
+    const userId = req.userId;
     const { q } = req.query; // Expecting /api/chat/search?q=your_search_term
 
     // 1. Guard check: Must be authenticated to search history
@@ -139,5 +179,48 @@ export const searchChats = async (req, res) => {
       success: false, 
       message: "Internal server error during search query processing." 
     });
+  }
+};
+
+// 1. GET ALL CHATS FOR A USER (Sidebar History List)
+export const getUserChatHistory = async (req, res) => {
+  try {
+    const userId = req.userId; // Retrieved from Clerk authentication middleware
+    if (!userId) {
+      console.log("User Id detected to be null");
+      return res.status(401).json({ error: "Unauthorized access." });
+    }
+
+    // Fetch conversations sorted by newest update first
+    const chats = await Chat.find({ userId }).sort({ createdAt: -1 });
+    return res.status(200).json(chats);
+  } catch (error) {
+    console.error("Error fetching chat list:", error);
+    return res.status(500).json({ error: "Server error fetching history." });
+  }
+};
+
+// 2. GET ALL SEQUENTIAL MESSAGES FOR A SINGLE CHAT SESSION
+export const getChatMessages = async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.userId;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized." });
+    }
+
+    // Verification check: ensure the chat session belongs to the requesting Clerk user
+    const chatSession = await Chat.findOne({ _id: chatId, userId });
+    if (!chatSession) {
+      return res.status(404).json({ error: "Conversation session not found." });
+    }
+
+    // Fetch individual sequential messages using the chatId foreign key index
+    const messages = await Message.find({ chatId }).sort({ createdAt: 1 });
+    return res.status(200).json(messages);
+  } catch (error) {
+    console.error("Error loading chat window data:", error);
+    return res.status(500).json({ error: "Server error parsing messages." });
   }
 };
