@@ -86,6 +86,7 @@ export default function Home() {
         const data: ChatHistoryItem[] = await res.json();
         setChatHistory(data);
       }
+      console.log(`search button was triggered!`);
     } catch (err) {
       console.error("Search error:", err);
     }
