@@ -20,13 +20,6 @@ interface ChatHistoryItem {
   createdAt?: string;
 }
 
-// interface ChatHistoryItem {
-//   _id: string;
-//   title: string;
-//   userId: string;
-//   createdAt: string;
-// }
-
 interface SearchResponse {
   success: boolean;
   count: number;
@@ -109,27 +102,6 @@ export default function Home() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  // // Handle Input Changes with instant Search Syncing
-  // const handleSearch = async (query: string): Promise<void> => {
-  //   setSearchQuery(query);
-  //   if (!query.trim()) {
-  //     fetchChatHistory();
-  //     return;
-  //   }
-  //   try {
-  //     const token = await getToken();
-  //     const res = await fetch(`${backendUrl}/api/chat/search?q=${encodeURIComponent(query)}`, {
-  //       headers: { Authorization: `Bearer ${token}` }
-  //     });
-  //     if (res.ok) {
-  //       const data: ChatHistoryItem[] = await res.json();
-  //       setChatHistory(data);
-  //     }
-  //   } catch (err) {
-  //     console.error("Search error:", err);
-  //   }
-  // };
 
   const handleSearch = async (query: string): Promise<void> => {
   setSearchQuery(query);
@@ -290,7 +262,7 @@ export default function Home() {
       />
 
       {/* MAIN CONSOLE INTERFACE SCREEN */}
-      <main className="flex-1 flex flex-col h-full relative bg-white dark:bg-[#212121] transition-colors">
+      <main className="flex-1 flex flex-col h-full relative bg-white dark:bg-[#171717] transition-colors">
         
         {/* Top Right Header Access Button (Visible only when Anonymous) */}
         {!userId && isLoaded && (
@@ -307,10 +279,10 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-3">
-              <div className="p-3 bg-[#2f2f2f] rounded-full text-gray-400">
+              <div className="p-3 bg-gray-200 dark:bg-[#2a2b2d] rounded-full text-gray-400">
                 <Bot size={32} />
               </div>
-              <h1 className="text-xl font-bold text-white tracking-tight">Ask Me Anything</h1>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">Ask Me Anything</h1>
             </div>
           ) : (
             <div className="max-w-2xl mx-auto space-y-6 pb-24">
@@ -318,7 +290,7 @@ export default function Home() {
                 <div 
                   key={index} 
                   className={`flex gap-4 p-4 rounded-xl text-sm ${
-                    msg.sender === 'user' ? 'bg-[#2f2f2f] text-gray-100' : 'bg-transparent text-gray-300'
+                    msg.sender === 'user' ? 'bg-gray-100 dark:bg-[#2a2b2d] text-gray-900 dark:text-gray-100' : 'bg-transparent text-gray-800 dark:text-gray-200'
                   }`}
                 >
                   <div className="flex-shrink-0 mt-0.5">
@@ -330,7 +302,7 @@ export default function Home() {
                   </div>
                   <div className="flex-1 space-y-1 whitespace-pre-wrap leading-relaxed">
                     {msg.text || (isGenerating && index === messages.length - 1 ? (
-                      <span className="inline-block animate-pulse text-gray-500">▋ Reading response chunks...</span>
+                      <span className="inline-block animate-pulse text-gray-500 dark:text-gray-400">Reading response chunks...</span>
                     ) : '')}
                   </div>
                 </div>

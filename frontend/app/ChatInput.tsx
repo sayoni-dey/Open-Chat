@@ -19,7 +19,8 @@ export default function ChatInput({
   handleStopGeneration
 }: ChatInputProps) {
   return (
-    <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-[#212121] via-[#212121] to-transparent pt-6 pb-4 px-4">
+    <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-white via-white dark:from-[#171717] dark:via-[#171717]
+        to-transparent to-transparent pt-6 pb-4 px-4">
       <form onSubmit={handleSendMessage} className="max-w-2xl mx-auto relative flex items-center">
         <input
           type="text"
@@ -27,7 +28,7 @@ export default function ChatInput({
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
           placeholder={isGenerating ? "Generation in progress..." : "Message Llama-3.1..."}
           disabled={isGenerating}
-          className="w-full bg-[#2f2f2f] text-sm text-white pl-4 pr-12 py-3.5 rounded-2xl border border-[#3c3c3c] focus:outline-none focus:border-[#525252] focus:ring-1 focus:ring-[#525252] disabled:opacity-60 placeholder-gray-500 shadow-xl"
+          className="w-full bg-gray-100 dark:bg-[#2a2b2d] text-gray-900 dark:text-gray-100 border-gray-300 dark:border-[#3a3a3d] placeholder:text-gray-500 dark:placeholder:text-gray-500 text-sm pl-4 pr-12 py-3.5 rounded-2xl border focus:outline-none focus:border-[#525252] focus:ring-1 focus:ring-[#525252] disabled:opacity-60 placeholder-gray-500 shadow-xl"
         />
         
         {/* Dynamic Context Button Selection Control Toggle */}
@@ -52,7 +53,7 @@ export default function ChatInput({
           )}
         </div>
       </form>
-      <div className="text-center text-[10px] text-gray-500 mt-2 tracking-wide">
+      <div className="text-center text-[10px] text-gray-500 dark:text-gray-500 mt-2 tracking-wide">
         Free Sandbox Access Layer. Powered by Groq's Llama-3.1-8b-instant.
       </div>
     </div>

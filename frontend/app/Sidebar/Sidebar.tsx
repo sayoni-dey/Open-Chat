@@ -166,7 +166,14 @@ export default function Sidebar({
       {/* Absolute Toggle Button to Open/Close the Navbar Panel */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed top-4 left-4 z-50 p-2 bg-[#2f2f2f] hover:bg-[#3e3e3e] text-gray-300 rounded-lg border border-[#424242] transition-colors shadow-md"
+        className="fixed top-4 left-4 z-50 p-2 bg-white
+dark:bg-[#2a2b2d]
+
+text-gray-700
+dark:text-gray-300
+
+border-gray-300
+dark:border-[#3a3a3d] hover:bg-[#3e3e3e] text-gray-300 rounded-lg border border-[#424242] transition-colors shadow-md"
         title={isOpen ? "Collapse Sidebar" : "Expand Sidebar"}
       >
         {isOpen ? <X size={18} /> : <Menu size={18} />}
@@ -174,8 +181,8 @@ export default function Sidebar({
 
       {/* LEFT SIDEBAR NAVBAR PANEL */}
       <aside 
-        className={`fixed md:relative z-40 h-full bg-[#171717] flex flex-col justify-between border-r border-[#2f2f2f] transition-all duration-300 ease-in-out ${
-          isOpen ? 'w-72 translate-x-0' : 'w-0 -translate-x-full md:translate-x-0 md:w-0 overflow-hidden border-r-0'
+        className={`fixed md:relative z-40 h-full bg-gray-50 dark:bg-[#111111] flex flex-col justify-between border-r border-gray-200 dark:border-[#2a2b2d] transition-all duration-300 ease-in-out ${
+          isOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full md:translate-x-0 md:w-0 overflow-hidden border-r-0'
         }`}
       >
         {/* Main Content Area wrapper to prevent squishing text layouts during collapse */}
@@ -189,7 +196,12 @@ export default function Sidebar({
             <button 
               onClick={handleNewChat}
               disabled={isGenerating}
-              className="flex items-center justify-between px-4 py-2.5 text-sm font-medium text-white border border-[#424242] rounded-xl hover:bg-[#212121] transition-colors mb-4 w-full disabled:opacity-50 shadow-sm"
+              className="flex items-center justify-between px-4 py-2.5 text-sm font-medium text-gray-900 dark:text-gray-100
+border-gray-300
+dark:border-[#3a3a3d]
+
+hover:bg-gray-200
+dark:hover:bg-[#202123] border border-[#424242] rounded-xl hover:bg-[#212121] transition-colors mb-4 w-full disabled:opacity-50 shadow-sm"
             >
               <span>New Chat</span>
               {/* Custom SVG Pen/Edit asset alternative to the traditional plus sign */}
@@ -211,7 +223,7 @@ export default function Sidebar({
                   placeholder="Search history..." 
                   value={searchQuery}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearch(e.target.value)}
-                  className="w-full bg-[#212121] pl-9 pr-3 py-2 text-xs rounded-xl border border-[#2f2f2f] focus:outline-none focus:border-gray-500 text-gray-200"
+                  className="w-full bg-gray-100 dark:bg-[#202123] text-gray-900 dark:text-gray-100 border-gray-300 dark:border-[#3a3a3d] pl-9 pr-3 py-2 text-xs rounded-xl border border-[#2f2f2f] focus:outline-none focus:border-gray-500 text-gray-200"
                 />
               </div>
             )}
