@@ -6,6 +6,10 @@ import { Bot, User } from 'lucide-react';
 import Sidebar from './Sidebar/Sidebar';
 import ChatInput from './ChatInput';
 import Link from "next/link";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { coldarkDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 interface Message {
   _id?: string;
@@ -275,7 +279,8 @@ export default function Home() {
           </header>
         )}
         
-        {/* Dynamic Chat Canvas Container Layout */}
+
+        {/* Dynamic Chat Canvas Container Layout */} 
         <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-3">
@@ -286,31 +291,94 @@ export default function Home() {
             </div>
           ) : (
             <div className="max-w-2xl mx-auto space-y-6 pb-24">
-              {messages.map((msg, index) => (
+              {messages.map((msg, index) => {
+                const isUser = msg.sender === 'user';
+        
+                return (
                 <div 
                   key={index} 
-                  className={`flex gap-4 p-4 rounded-xl text-sm ${
-                    msg.sender === 'user' ? 'bg-gray-100 dark:bg-[#2a2b2d] text-gray-900 dark:text-gray-100' : 'bg-transparent text-gray-800 dark:text-gray-200'
+                  className={`flex gap-4 p-4 rounded-xl text-sm w-full ${
+                    isUser 
+                      ? 'bg-gray-100 dark:bg-[#2a2b2d] text-gray-900 dark:text-gray-100 ml-auto max-w-[85%]' 
+                      : 'bg-transparent text-gray-800 dark:text-gray-200 mr-auto max-w-full'
                   }`}
                 >
+                  {/* Avatar block */}
                   <div className="flex-shrink-0 mt-0.5">
-                    {msg.sender === 'user' ? (
-                      <div className="w-6 h-6 rounded-full bg-gray-600 flex items-center justify-center text-[10px]"><User size={12}/></div>
+                    {isUser ? (
+                      <div className="w-6 h-6 rounded-full bg-gray-600 flex items-center justify-center text-[10px] text-white">
+                        <User size={12}/>
+                      </div>
                     ) : (
-                      <div className="w-6 h-6 rounded-full bg-orange-600 flex items-center justify-center text-[10px]"><Bot size={12}/></div>
+                    <div className="w-6 h-6 rounded-full bg-orange-600 flex items-center justify-center text-[10px] text-white">
+                      <Bot size={12}/>
+                    </div>
                     )}
                   </div>
-                  <div className="flex-1 space-y-1 whitespace-pre-wrap leading-relaxed">
-                    {msg.text || (isGenerating && index === messages.length - 1 ? (
-                      <span className="inline-block animate-pulse text-gray-500 dark:text-gray-400">Reading response chunks...</span>
-                    ) : '')}
+
+                  {/* Message Body Content Canvas */}
+                  <div className="flex-1 min-w-0 overflow-hidden leading-relaxed">
+                    {msg.text ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none break-words
+                      prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent
+                      prose-code:text-orange-600 dark:prose-code:text-orange-400 
+                      prose-code:bg-gray-200 dark:prose-code:bg-neutral-800 
+                      prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
+                  
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                    code({ className, children, ...props }) {
+                      const match = /language-(\w+)/.exec(className ?? "");
+
+                      if (match) {
+                        return (
+                          <div className="my-3 overflow-hidden rounded-lg border border-gray-200 dark:border-neutral-800">
+                            <SyntaxHighlighter
+                              language={match[1]}
+                              style={coldarkDark as Record<string, React.CSSProperties>}
+                              PreTag="div"
+                              customStyle={{
+                                margin: 0,
+                                borderRadius: 0,
+                                fontSize: "13px",
+                              }}
+                            >
+                              {String(children).replace(/\n$/, "")}
+                            </SyntaxHighlighter>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <code
+                          className="rounded bg-gray-200 px-1 py-0.5 text-orange-600 dark:bg-neutral-800 dark:text-orange-400"
+                          {...props}
+                        >
+                          {children}
+                        </code>
+                       );
+                      },
+                    }}
+                  >
+                    {msg.text}
+                  </ReactMarkdown>
+                    </div>
+                      ) : (
+                        isGenerating && index === messages.length - 1 && (
+                          <span className="inline-block animate-pulse text-gray-500 dark:text-gray-400">
+                            Reading response chunks...
+                          </span>
+                        )
+                     )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                  );
+                })}
               <div ref={messagesEndRef} />
             </div>
           )}
-        </div>
+      </div>
 
         {/* Modular Input Bar Component */}
         <ChatInput 
