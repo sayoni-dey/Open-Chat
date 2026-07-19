@@ -42,7 +42,8 @@ export default function Home() {
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+
   // DOM References and Native Network Controllers
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -139,11 +140,12 @@ export default function Home() {
   // Core Prompt Transmission and Server-Sent Events (SSE) Stream consumption
   const handleSendMessage = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
-    if (!input.trim() || isGenerating) return;
+    if (!input.trim()  && !attachedFile || isGenerating) return;
 
     const userPrompt: string = input;
     setInput('');
     setIsGenerating(true);
+    setAttachedFile(null);
 
     setMessages(prev => [
       ...prev, 
@@ -387,6 +389,8 @@ export default function Home() {
           isGenerating={isGenerating}
           handleSendMessage={handleSendMessage}
           handleStopGeneration={handleStopGeneration}
+          attachedFile={attachedFile}
+          setAttachedFile={setAttachedFile}
         />
       </main>
     </div>

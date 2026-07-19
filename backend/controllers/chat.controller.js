@@ -2,6 +2,7 @@ import { groq } from '../config/groq.js';
 import { redis } from '../config/redis.js';
 import Chat from '../models/chat.model.js';
 import Message from '../models/message.model.js';
+import { PDFParse } from 'pdf-parse';
 
 export const handleChatStream = async (req, res) => {
   const { prompt, chatId } = req.body;
@@ -222,5 +223,114 @@ export const getChatMessages = async (req, res) => {
   } catch (error) {
     console.error("Error loading chat window data:", error);
     return res.status(500).json({ error: "Server error parsing messages." });
+  }
+};
+
+
+
+ //FEATURE 1: MULTIMODAL IN-CHAT FLOW (Text + Images)
+ 
+export const handleMultimodalChat = async (req, res) => {
+  try {
+    const { chatId, messageText } = req.body;
+    const files = req.files || [];
+
+    // Construct the payload structure required by Groq's Vision endpoints
+    const contentPayload = [{ type: "text", text: messageText }];
+
+    // Inject base64 images into payload if attached
+    files.forEach((file) => {
+      if (file.mimetype.startsWith("image/")) {
+        const base64Image = file.buffer.toString("base64");
+        contentPayload.push({
+          type: "image_url",
+          image_url: { url: `data:${file.mimetype};base64,${base64Image}` },
+        });
+      }
+    });
+
+    // 1. Save user's message metadata to MongoDB
+    await Message.create({
+      chatId,
+      role: "user",
+      content: messageText,
+      attachments: files.map(f => ({ fileName: f.originalname, fileType: f.mimetype, fileUrl: "inline-base64" }))
+    });
+
+    // Set Server-Sent Events headers for immediate streaming responses
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    // 2. Query Groq multimodal endpoint (using qwen/qwen3.6-27b for vision analysis)
+    const stream = await groq.chat.completions.create({
+      model: "qwen/qwen3.6-27b",
+      messages: [{ role: "user", content: contentPayload }],
+      stream: true,
+    });
+
+    let completeAssistantResponse = "";
+    for await (const chunk of stream) {
+      const textChunk = chunk.choices[0]?.delta?.content || "";
+      completeAssistantResponse += textChunk;
+      res.write(`data: ${JSON.stringify({ chunk: textChunk })}\n\n`);
+    }
+
+    // 3. Commit assistant answer back to MongoDB history
+    await Message.create({
+      chatId,
+      role: "assistant",
+      content: completeAssistantResponse,
+    });
+
+    res.write("data: [DONE]\n\n");
+    res.end();
+  } catch (error) {
+    console.error("Multimodal routing error:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+
+ // FEATURE 2: ISOLATED PDF SUMMARIZER ROUTE
+export const handlePDFSummary = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "No PDF file attached." });
+
+    // Parse text fragments directly from RAM buffer array
+    const pdfData = await pdfParse(req.file.buffer);
+    const extractedText = pdfData.text;
+
+    if (!extractedText.trim()) {
+      return res.status(400).json({ error: "Could not extract readable text strings from this PDF." });
+    }
+
+    // Set headers for smooth real-time response generation
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+
+    // Send context block safely packed inside structural prompts
+    const systemPrompt = "You are a professional research analyzer. Synthesize the provided document text into a comprehensive executive summary layout with clear markdown highlights, nested headers, and key actionable takeaways.";
+
+    const stream = await groq.chat.completions.create({
+      model: "qwen/qwen3.6-27b", // Utilize 131k context window limits safely
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Document Title: ${req.file.originalname}\n\nContent:\n${extractedText}` }
+      ],
+      stream: true,
+    });
+
+    for await (const chunk of stream) {
+      const textChunk = chunk.choices[0]?.delta?.content || "";
+      res.write(`data: ${JSON.stringify({ chunk: textChunk })}\n\n`);
+    }
+
+    res.write("data: [DONE]\n\n");
+    res.end();
+  } catch (error) {
+    console.error("PDF Summarizer Failure:", error);
+    res.write(`data: ${JSON.stringify({ error: "Processing failed." })}\n\n`);
+    res.end();
   }
 };
