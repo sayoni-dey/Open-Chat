@@ -42,7 +42,7 @@ export default function Home() {
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
 
   // DOM References and Native Network Controllers
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -137,112 +137,125 @@ export default function Home() {
   }
 };
 
-  // Core Prompt Transmission and Server-Sent Events (SSE) Stream consumption
-  const handleSendMessage = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    e.preventDefault();
-    if (!input.trim()  && !attachedFile || isGenerating) return;
+  // // Core Prompt Transmission and Server-Sent Events (SSE) Stream consumption
+  // const handleSendMessage = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
+  //   e.preventDefault();
+  //   if (!input.trim()  && attachedFiles.length === 0|| isGenerating) return;
+  //   try{
+  //     const formData = new FormData();
+  //     formData.append('prompt', input);
+    
+  //     // Loop and append all attached files/images
+  //     attachedFiles.forEach((file) => {
+  //     formData.append('files', file); 
+  //   });
 
-    const userPrompt: string = input;
-    setInput('');
-    setIsGenerating(true);
-    setAttachedFile(null);
+  //   }catch(err){
+  //     console.log(err);
+  //   }
+  //   const userPrompt: string = input;
+  //   setInput('');
+  //   setIsGenerating(true);
+  //   setAttachedFiles([]);
+  
+  //   // console.error(err);
 
-    setMessages(prev => [
-      ...prev, 
-      { sender: 'user', text: userPrompt },
-      { sender: 'assistant', text: '' }
-    ]);
+  //   setMessages(prev => [
+  //     ...prev, 
+  //     { sender: 'user', text: userPrompt },
+  //     { sender: 'assistant', text: '' }
+  //   ]);
 
-    abortControllerRef.current = new AbortController();
-    const requestUrl = `${backendUrl}/api/chat/prompt`; // Points cleanly to your refactored stream endpoint
+  //   abortControllerRef.current = new AbortController();
+  //   const requestUrl = `${backendUrl}/api/chat/prompt`; // Points cleanly to your refactored stream endpoint
 
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (userId) {
-        const token = await getToken();
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-      }
+  //   try {
+  //     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  //     if (userId) {
+  //       const token = await getToken();
+  //       if (token) headers['Authorization'] = `Bearer ${token}`;
+  //     }
 
-      const requestBody = { prompt: userPrompt, chatId: chatId || null };
-      const response = await fetch(requestUrl, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify(requestBody),
-        signal: abortControllerRef.current.signal
-      });
+  //     const requestBody = { prompt: userPrompt, chatId: chatId || null };
+  //     const response = await fetch(requestUrl, {
+  //       method: 'POST',
+  //       headers: headers,
+  //       body: JSON.stringify(requestBody),
+  //       signal: abortControllerRef.current.signal
+  //     });
 
-      if (response.status === 429) {
-        setMessages(prev => {
-          const updated = [...prev];
-          updated[updated.length - 1] = { sender: 'assistant', text: 'Rate limit reached. Please sign in to unlock unlimited chats!' };
-          return updated;
-        });
-        return;
-      }
+  //     if (response.status === 429) {
+  //       setMessages(prev => {
+  //         const updated = [...prev];
+  //         updated[updated.length - 1] = { sender: 'assistant', text: 'Rate limit reached. Please sign in to unlock unlimited chats!' };
+  //         return updated;
+  //       });
+  //       return;
+  //     }
 
-      if (!response.ok) {
-        throw new Error(`Server returned status: ${response.status}`);
-      }
+  //     if (!response.ok) {
+  //       throw new Error(`Server returned status: ${response.status}`);
+  //     }
 
-      if (!response.body) {
-        throw new Error("No readable stream channel found");
-      }
+  //     if (!response.body) {
+  //       throw new Error("No readable stream channel found");
+  //     }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+  //     const reader = response.body.getReader();
+  //     const decoder = new TextDecoder();
       
-      let completeResponse = '';
-      let buffer = '';
+  //     let completeResponse = '';
+  //     let buffer = '';
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+  //     while (true) {
+  //       const { value, done } = await reader.read();
+  //       if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+  //       buffer += decoder.decode(value, { stream: true });
+  //       const lines = buffer.split('\n');
+  //       buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          const cleanedLine = line.trim();
-          if (!cleanedLine) continue;
+  //       for (const line of lines) {
+  //         const cleanedLine = line.trim();
+  //         if (!cleanedLine) continue;
 
-          if (cleanedLine.startsWith('data: ')) {
-            const content = cleanedLine.replace('data: ', '').trim();
+  //         if (cleanedLine.startsWith('data: ')) {
+  //           const content = cleanedLine.replace('data: ', '').trim();
             
-            if (content === '[DONE]') {
-              // Increment history trigger on end of stream to auto-refresh sidebar history list and load title modifications
-              setHistoryTrigger(prev => prev + 1);
-              continue;
-            }
+  //           if (content === '[DONE]') {
+  //             // Increment history trigger on end of stream to auto-refresh sidebar history list and load title modifications
+  //             setHistoryTrigger(prev => prev + 1);
+  //             continue;
+  //           }
 
-            try {
-              const parsed = JSON.parse(content);
-              if (parsed.chatId && !chatId) {
-                setChatId(parsed.chatId);
-              }
-              if (parsed.chunk) {
-                completeResponse += parsed.chunk;
-              }
-            } catch (e) {
-              completeResponse += content;
-            }
+  //           try {
+  //             const parsed = JSON.parse(content);
+  //             if (parsed.chatId && !chatId) {
+  //               setChatId(parsed.chatId);
+  //             }
+  //             if (parsed.chunk) {
+  //               completeResponse += parsed.chunk;
+  //             }
+  //           } catch (e) {
+  //             completeResponse += content;
+  //           }
 
-            setMessages(prev => {
-              const updated = [...prev];
-              updated[updated.length - 1] = { sender: 'assistant', text: completeResponse };
-              return updated;
-            });
-          }
-        }
-      }
+  //           setMessages(prev => {
+  //             const updated = [...prev];
+  //             updated[updated.length - 1] = { sender: 'assistant', text: completeResponse };
+  //             return updated;
+  //           });
+  //         }
+  //       }
+  //     }
 
-    } catch (err: unknown) {
-      console.error('Crash inside handleSendMessage loop:', err);
-    } finally {
-      setIsGenerating(false);
-      abortControllerRef.current = null;
-    }
-  };
+  //   } catch (err: unknown) {
+  //     console.error('Crash inside handleSendMessage loop:', err);
+  //   } finally {
+  //     setIsGenerating(false);
+  //     abortControllerRef.current = null;
+  //   }
+  // };
 
   const handleStopGeneration = (): void => {
     if (abortControllerRef.current) {
@@ -250,6 +263,157 @@ export default function Home() {
       setIsGenerating(false);
     }
   };
+
+  const handleSendMessage = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
+  e.preventDefault();
+  
+  // Prevent submission if both input and attachments are empty, or if generation is active
+  if ((!input.trim() && attachedFiles.length === 0) || isGenerating) return;
+
+  const userPrompt: string = input;
+  const currentFiles: File[] = [...attachedFiles]; // Preserve reference before resetting
+  const isMultimodal: boolean = currentFiles.length > 0;
+
+  // Reset inputs and trigger generation state right away
+  setInput('');
+  setAttachedFiles([]);
+  setIsGenerating(true);
+
+  // Append user message + assistant placeholder message to UI canvas
+  setMessages(prev => [
+    ...prev,
+    { 
+      sender: 'user', 
+      text: userPrompt, 
+      attachments: currentFiles.map(file => ({
+        name: file.name,
+        url: URL.createObjectURL(file) // Local preview URL
+      })) 
+    },
+    { sender: 'assistant', text: '' }
+  ]);
+
+  abortControllerRef.current = new AbortController();
+
+  // Dynamic Route Determination
+  const requestUrl = isMultimodal
+    ? `${backendUrl}/api/chat/multimodal`
+    : `${backendUrl}/api/chat/prompt`;
+
+  try {
+    const headers: Record<string, string> = {};
+
+    // Attach Authorization Bearer Token if user is logged in
+    if (userId) {
+      const token = await getToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    let requestBody: RequestInit['body'];
+
+    if (isMultimodal) {
+      // 1. Build FormData Payload for Multimodal Route (Multer backend)
+      const formData = new FormData();
+      formData.append('messageText', userPrompt);
+      if (chatId) formData.append('chatId', chatId);
+
+      // Append attached files
+      currentFiles.forEach((file) => {
+        formData.append('files', file);
+      });
+
+      requestBody = formData;
+      // NOTE: Do NOT set 'Content-Type' header when using FormData; 
+      // the browser will automatically include 'multipart/form-data; boundary=...'
+    } else {
+      // 2. Build standard JSON Payload for Pure Text /prompt Route
+      headers['Content-Type'] = 'application/json';
+      requestBody = JSON.stringify({ prompt: userPrompt, chatId: chatId || null });
+    }
+
+    const response = await fetch(requestUrl, {
+      method: 'POST',
+      headers: headers,
+      body: requestBody,
+      signal: abortControllerRef.current.signal
+    });
+
+    if (response.status === 429) {
+      setMessages(prev => {
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          sender: 'assistant',
+          text: 'Rate limit reached. Please sign in to unlock unlimited chats!'
+        };
+        return updated;
+      });
+      return;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Server returned status: ${response.status}`);
+    }
+
+    if (!response.body) {
+      throw new Error("No readable stream channel found");
+    }
+
+    // Process incoming SSE Stream Chunks
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    let completeResponse = '';
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const cleanedLine = line.trim();
+        if (!cleanedLine) continue;
+
+        if (cleanedLine.startsWith('data: ')) {
+          const content = cleanedLine.replace('data: ', '').trim();
+
+          if (content === '[DONE]') {
+            // Auto-refresh sidebar history list on stream completion
+            setHistoryTrigger(prev => prev + 1);
+            continue;
+          }
+
+          try {
+            const parsed = JSON.parse(content);
+            if (parsed.chatId && !chatId) {
+              setChatId(parsed.chatId);
+            }
+            if (parsed.chunk) {
+              completeResponse += parsed.chunk;
+            }
+          } catch (e) {
+            completeResponse += content;
+          }
+
+          setMessages(prev => {
+            const updated = [...prev];
+            updated[updated.length - 1] = { sender: 'assistant', text: completeResponse };
+            return updated;
+          });
+        }
+      }
+    }
+
+  } catch (err: unknown) {
+    console.error('Crash inside handleSendMessage loop:', err);
+  } finally {
+    setIsGenerating(false);
+    abortControllerRef.current = null;
+  }
+};
 
   return (
     <div className="flex h-screen overflow-hidden w-full">
@@ -389,10 +553,10 @@ export default function Home() {
           isGenerating={isGenerating}
           handleSendMessage={handleSendMessage}
           handleStopGeneration={handleStopGeneration}
-          attachedFile={attachedFile}
-          setAttachedFile={setAttachedFile}
+          attachedFiles={attachedFiles}       // 👈 Pass array state
+          setAttachedFiles={setAttachedFiles}
         />
       </main>
     </div>
   );
-}
+  }

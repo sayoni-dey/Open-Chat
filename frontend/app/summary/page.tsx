@@ -23,7 +23,7 @@ export default function PDFSummaryDashboard() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
     try {
-      const response = await fetch(`${apiUrl}/api/pdf-summarize`, {
+      const response = await fetch(`${apiUrl}/api/chat/summarize-pdf`, {
         method: "POST",
         body: formData,
       });

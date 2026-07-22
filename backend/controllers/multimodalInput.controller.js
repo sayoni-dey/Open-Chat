@@ -1,14 +1,13 @@
 ///controller/multimodalInput.controller.js
 import { groq } from "../config/groq.js";
-import { Message } from "../models/Message.js"; // [cite: 534, 1218]
+import Message from "../models/message.model.js"; // [cite: 534, 1218]
 import { PDFParse } from 'pdf-parse';
+import Groq from "groq-sdk";
+import { v2 as cloudinary } from "cloudinary";
+import Chat from "../models/chat.model.js";
+import {redis} from "../config/redis.js";
 
-// Allowed image mime types for Vision model
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB per file limit
-const MAX_FILE_COUNT = 5;
-
-/**
+ /**
  * Utility: Sends SSE errors safely based on whether headers have already been sent.
  */
 const sendError = (res, statusCode, message) => {
@@ -31,6 +30,273 @@ const chunkText = (text, chunkSize = 12000, overlap = 1000) => {
     index += chunkSize - overlap;
   }
   return chunks;
+};
+
+
+// Cloudinary Configuration
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Guardrail Constants
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB per file limit
+const MAX_FILE_COUNT = 5;
+const MAX_CONTEXT_MESSAGES = 20; // Replays the last 20 messages (~10 user-assistant turns)
+
+/**
+ * Utility: Uploads a buffer to Cloudinary using a Stream.
+ */
+const uploadToCloudinary = (fileBuffer, mimeType) => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder: "chatbot_attachments",
+        resource_type: mimeType.startsWith("image/") ? "image" : "auto",
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result.secure_url);
+      }
+    );
+    uploadStream.end(fileBuffer);
+  });
+};
+
+/**
+ * SSE Error Helper (Adheres strictly to standard SSE formatting)
+ */
+const sendSSEError = (res, errorMessage, statusCode = 500) => {
+  if (!res.headersSent) {
+    res.status(statusCode).setHeader("Content-Type", "text/event-stream");
+  }
+  res.write(`event: error\n`);
+  res.write(`data: ${JSON.stringify({ error: errorMessage })}\n\n`);
+  res.end();
+};
+
+export const handleMultimodalChat = async (req, res) => {
+  const abortController = new AbortController();
+
+  // Abort ongoing Groq generation on client disconnection
+  req.on("close", () => {
+    if (!res.writableEnded) {
+      abortController.abort();
+      console.log("Client disconnected from multimodal stream.");
+    }
+  });
+
+  try {
+    const { chatId: inputChatId, messageText } = req.body;
+    const userId = req.auth?.userId || null;
+    const files = req.files || [];
+
+    // --- STEP 1: INPUT VALIDATION & GUARDRAILS ---
+    if (!messageText?.trim() && files.length === 0) {
+      return res.status(400).json({ error: "Message text or an attachment is required." });
+    }
+
+    if (files.length > MAX_FILE_COUNT) {
+      return res.status(400).json({
+        error: `Maximum ${MAX_FILE_COUNT} attachments permitted per message.`,
+      });
+    }
+
+    for (const file of files) {
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        return res.status(400).json({
+          error: `File '${file.originalname}' exceeds the 10MB limit.`,
+        });
+      }
+      if (!ALLOWED_IMAGE_TYPES.includes(file.mimetype)) {
+        return res.status(400).json({
+          error: `File type '${file.mimetype}' is not supported. Only JPEG, PNG, WEBP, and GIF are allowed.`,
+        });
+      }
+    }
+
+    // --- STEP 2: CLOUD STORAGE UPLOAD ---
+    // Upload files to Cloudinary and return secure hosted URLs
+    const uploadedAttachments = await Promise.all(
+      files.map(async (file) => {
+        const secureUrl = await uploadToCloudinary(file.buffer, file.mimetype);
+        return {
+          type: file.mimetype.startsWith("image/") ? "image" : "file",
+          url: secureUrl,
+          mimeType: file.mimetype,
+          fileName: file.originalname,
+          fileSize: file.size,
+        };
+      })
+    );
+
+    // --- STEP 3: ENSURE / CREATE CHAT SESSION ---
+    let activeChatId = inputChatId;
+    if (!activeChatId) {
+      const newChat = await Chat.create({
+        userId,
+        title: messageText ? messageText.substring(0, 30) : "Multimodal Conversation",
+      });
+      activeChatId = newChat._id;
+    }
+
+    // --- STEP 4: PERSIST USER MESSAGE FIRST (SINGLE SOURCE OF TRUTH) ---
+    await Message.create({
+      chatId: activeChatId,
+      sender: "user",
+      text: messageText || "",
+      attachments: uploadedAttachments,
+    });
+
+  //   // --- STEP 5: REBUILD SLIDING CONVERSATION HISTORY FROM MONGO DB ---
+  // // Fetch only the most recent N messages in reverse-chronological order, then reverse back
+  // const recentDbMessages = await Message.find({ chatId: activeChatId })
+  //   .sort({ createdAt: -1 })
+  //   .limit(MAX_CONTEXT_MESSAGES)
+  //   .lean();
+
+  // // Reverse array so messages are in chronological order (Oldest -> Newest) for the LLM payload
+  // const dbMessages = recentDbMessages.reverse();
+
+  // // Construct LLM payload from the truncated message context window
+  // const llmPayloadMessages = dbMessages.map((msg) => {
+  //   if (msg.role === "user" && msg.attachments && msg.attachments.length > 0) {
+  //     const contentArray = [];
+
+  //     if (msg.content) {
+  //       contentArray.push({ type: "text", text: msg.content });
+  //     }
+
+  //     msg.attachments.forEach((att) => {
+  //       if (att.type === "image" && att.url) {
+  //         contentArray.push({
+  //           type: "image_url",
+  //           image_url: { url: att.url },
+  //         });
+  //       }
+  //     });
+
+  //     return {
+  //       role: msg.role,
+  //       content: contentArray,
+  //     };
+  //   }
+
+  //   return {
+  //     role: msg.role,
+  //     content: msg.content,
+  //   };
+  // });
+
+  // --- STEP 5: REBUILD SLIDING CONVERSATION HISTORY FROM MONGO DB ---
+  // Fetch only the most recent N messages in reverse-chronological order, then reverse back
+  const recentDbMessages = await Message.find({ chatId: activeChatId })
+    .sort({ createdAt: -1 })
+    .limit(MAX_CONTEXT_MESSAGES)
+    .lean();
+
+  // Reverse array so messages are in chronological order (Oldest -> Newest) for the LLM payload
+  const dbMessages = recentDbMessages.reverse();
+
+  // Construct LLM payload mapping MongoDB fields (sender -> role, text -> content)
+  const llmPayloadMessages = dbMessages.map((msg) => {
+    // Map database sender ("user" or "assistant") to LLM role
+    const role = msg.sender || "user";
+    const textContent = msg.text || "";
+
+    if (role === "user" && msg.attachments && msg.attachments.length > 0) {
+      const contentArray = [];
+
+      if (textContent) {
+        contentArray.push({ type: "text", text: textContent });
+      }
+
+      msg.attachments.forEach((att) => {
+        if (att.type === "image" && att.url) {
+          contentArray.push({
+            type: "image_url",
+            image_url: { url: att.url },
+          });
+        }
+      });
+
+      return {
+        role: role,
+        content: contentArray,
+      };
+    }
+
+    return {
+      role: role,
+      content: textContent,
+    };
+  });
+
+  console.log(JSON.stringify(dbMessages, null, 2));
+
+    // --- STEP 6: INITIALIZE SSE CONNECTION ---
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    // --- STEP 7: EXECUTE GROQ LLM STREAMING REQUEST ---
+    const stream = await groq.chat.completions.create(
+      {
+        model: "qwen/qwen3.6-27b",
+        messages: llmPayloadMessages,
+        stream: true,
+        stream_options: { include_usage: true },
+      },
+      { signal: abortController.signal }
+    );
+
+    let assistantResponseText = "";
+    let completionTokensUsed = 0;
+
+    for await (const chunk of stream) {
+      const deltaText = chunk.choices[0]?.delta?.content || "";
+      assistantResponseText += deltaText;
+
+      if (chunk.usage?.completion_tokens) {
+        completionTokensUsed = chunk.usage.completion_tokens;
+      }
+
+      if (deltaText) {
+        res.write(`data: ${JSON.stringify({ chunk: deltaText, chatId: activeChatId })}\n\n`);
+      }
+    }
+
+    // --- STEP 8: SAVE ASSISTANT RESPONSE TO MONGO DB ---
+    await Message.create({
+      chatId: activeChatId,
+      sender: "assistant",
+      text: assistantResponseText,
+    });
+
+    // --- STEP 9: UPDATE REDIS RATE LIMIT TRACKER POST-STREAM ---
+    if (completionTokensUsed > 0) {
+      const identifier = userId || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+      const minuteKey = Math.floor(Date.now() / 60000);
+      const tokenKey = `ratelimit:groq:tpm:${identifier}:${minuteKey}`;
+
+      await redis.incrby(tokenKey, completionTokensUsed).catch((err) =>
+        console.error("Failed to update token usage in Redis:", err)
+      );
+    }
+
+    res.write(`data: [DONE]\n\n`);
+    res.end();
+  } catch (error) {
+    if (error.name === "AbortError") {
+      console.log("Groq request aborted cleanly upon client disconnection.");
+      return;
+    }
+    console.error("Multimodal Stream Controller Error:", error);
+    return sendSSEError(res, error.message || "An unexpected error occurred during processing.");
+  }
 };
 
 // ============================================================================
@@ -161,233 +427,7 @@ const chunkText = (text, chunkSize = 12000, overlap = 1000) => {
 //   }
 // };
 
-import Groq from "groq-sdk";
-import { v2 as cloudinary } from "cloudinary";
-import Chat from "../models/Chat.js";
-import Message from "../models/Message.js";
-import redis from "../config/redis.js";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
-// Cloudinary Configuration
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-// Guardrail Constants
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB per file limit
-const MAX_FILE_COUNT = 5;
-const MAX_CONTEXT_MESSAGES = 20; // Replays the last 20 messages (~10 user-assistant turns)
-
-/**
- * Utility: Uploads a buffer to Cloudinary using a Stream.
- */
-const uploadToCloudinary = (fileBuffer, mimeType) => {
-  return new Promise((resolve, reject) => {
-    const uploadStream = cloudinary.uploader.upload_stream(
-      {
-        folder: "chatbot_attachments",
-        resource_type: mimeType.startsWith("image/") ? "image" : "auto",
-      },
-      (error, result) => {
-        if (error) return reject(error);
-        resolve(result.secure_url);
-      }
-    );
-    uploadStream.end(fileBuffer);
-  });
-};
-
-/**
- * SSE Error Helper (Adheres strictly to standard SSE formatting)
- */
-const sendSSEError = (res, errorMessage, statusCode = 500) => {
-  if (!res.headersSent) {
-    res.status(statusCode).setHeader("Content-Type", "text/event-stream");
-  }
-  res.write(`event: error\n`);
-  res.write(`data: ${JSON.stringify({ error: errorMessage })}\n\n`);
-  res.end();
-};
-
-export const handleMultimodalChat = async (req, res) => {
-  const abortController = new AbortController();
-
-  // Abort ongoing Groq generation on client disconnection
-  req.on("close", () => {
-    if (!res.writableEnded) {
-      abortController.abort();
-      console.log("Client disconnected from multimodal stream.");
-    }
-  });
-
-  try {
-    const { chatId: inputChatId, messageText } = req.body;
-    const userId = req.auth?.userId || null;
-    const files = req.files || [];
-
-    // --- STEP 1: INPUT VALIDATION & GUARDRAILS ---
-    if (!messageText?.trim() && files.length === 0) {
-      return res.status(400).json({ error: "Message text or an attachment is required." });
-    }
-
-    if (files.length > MAX_FILE_COUNT) {
-      return res.status(400).json({
-        error: `Maximum ${MAX_FILE_COUNT} attachments permitted per message.`,
-      });
-    }
-
-    for (const file of files) {
-      if (file.size > MAX_FILE_SIZE_BYTES) {
-        return res.status(400).json({
-          error: `File '${file.originalname}' exceeds the 10MB limit.`,
-        });
-      }
-      if (!ALLOWED_IMAGE_TYPES.includes(file.mimetype)) {
-        return res.status(400).json({
-          error: `File type '${file.mimetype}' is not supported. Only JPEG, PNG, WEBP, and GIF are allowed.`,
-        });
-      }
-    }
-
-    // --- STEP 2: CLOUD STORAGE UPLOAD ---
-    // Upload files to Cloudinary and return secure hosted URLs
-    const uploadedAttachments = await Promise.all(
-      files.map(async (file) => {
-        const secureUrl = await uploadToCloudinary(file.buffer, file.mimetype);
-        return {
-          type: file.mimetype.startsWith("image/") ? "image" : "file",
-          url: secureUrl,
-          mimeType: file.mimetype,
-          fileName: file.originalname,
-          fileSize: file.size,
-        };
-      })
-    );
-
-    // --- STEP 3: ENSURE / CREATE CHAT SESSION ---
-    let activeChatId = inputChatId;
-    if (!activeChatId) {
-      const newChat = await Chat.create({
-        userId,
-        title: messageText ? messageText.substring(0, 30) : "Multimodal Conversation",
-      });
-      activeChatId = newChat._id;
-    }
-
-    // --- STEP 4: PERSIST USER MESSAGE FIRST (SINGLE SOURCE OF TRUTH) ---
-    await Message.create({
-      chatId: activeChatId,
-      role: "user",
-      content: messageText || "",
-      attachments: uploadedAttachments,
-    });
-
-    // --- STEP 5: REBUILD SLIDING CONVERSATION HISTORY FROM MONGO DB ---
-  // Fetch only the most recent N messages in reverse-chronological order, then reverse back
-  const recentDbMessages = await Message.find({ chatId: activeChatId })
-    .sort({ createdAt: -1 })
-    .limit(MAX_CONTEXT_MESSAGES)
-    .lean();
-
-  // Reverse array so messages are in chronological order (Oldest -> Newest) for the LLM payload
-  const dbMessages = recentDbMessages.reverse();
-
-  // Construct LLM payload from the truncated message context window
-  const llmPayloadMessages = dbMessages.map((msg) => {
-    if (msg.role === "user" && msg.attachments && msg.attachments.length > 0) {
-      const contentArray = [];
-
-      if (msg.content) {
-        contentArray.push({ type: "text", text: msg.content });
-      }
-
-      msg.attachments.forEach((att) => {
-        if (att.type === "image" && att.url) {
-          contentArray.push({
-            type: "image_url",
-            image_url: { url: att.url },
-          });
-        }
-      });
-
-      return {
-        role: msg.role,
-        content: contentArray,
-      };
-    }
-
-    return {
-      role: msg.role,
-      content: msg.content,
-    };
-  });
-
-    // --- STEP 6: INITIALIZE SSE CONNECTION ---
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders?.();
-
-    // --- STEP 7: EXECUTE GROQ LLM STREAMING REQUEST ---
-    const stream = await groq.chat.completions.create(
-      {
-        model: "llama-3.2-11b-vision-preview",
-        messages: llmPayloadMessages,
-        stream: true,
-        stream_options: { include_usage: true },
-      },
-      { signal: abortController.signal }
-    );
-
-    let assistantResponseText = "";
-    let completionTokensUsed = 0;
-
-    for await (const chunk of stream) {
-      const deltaText = chunk.choices[0]?.delta?.content || "";
-      assistantResponseText += deltaText;
-
-      if (chunk.usage?.completion_tokens) {
-        completionTokensUsed = chunk.usage.completion_tokens;
-      }
-
-      if (deltaText) {
-        res.write(`data: ${JSON.stringify({ chunk: deltaText, chatId: activeChatId })}\n\n`);
-      }
-    }
-
-    // --- STEP 8: SAVE ASSISTANT RESPONSE TO MONGO DB ---
-    await Message.create({
-      chatId: activeChatId,
-      role: "assistant",
-      content: assistantResponseText,
-    });
-
-    // --- STEP 9: UPDATE REDIS RATE LIMIT TRACKER POST-STREAM ---
-    if (completionTokensUsed > 0) {
-      const identifier = userId || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-      const minuteKey = Math.floor(Date.now() / 60000);
-      const tokenKey = `ratelimit:groq:tpm:${identifier}:${minuteKey}`;
-
-      await redis.incrby(tokenKey, completionTokensUsed).catch((err) =>
-        console.error("Failed to update token usage in Redis:", err)
-      );
-    }
-
-    res.write(`data: [DONE]\n\n`);
-    res.end();
-  } catch (error) {
-    if (error.name === "AbortError") {
-      console.log("Groq request aborted cleanly upon client disconnection.");
-      return;
-    }
-    console.error("Multimodal Stream Controller Error:", error);
-    return sendSSEError(res, error.message || "An unexpected error occurred during processing.");
-  }
-};
 
 // ============================================================================
 // FEATURE 2: ISOLATED PDF SUMMARIZER ROUTE (Map-Reduce Summarization)
@@ -418,11 +458,15 @@ export const handlePDFSummary = async (req, res) => {
     }
 
     // Parse text fragments from RAM buffer
-    const pdfData = await PDFParse(req.file.buffer);
-    const extractedText = pdfData.text ? pdfData.text.trim() : "";
+    // const pdfData = await PDFParse(req.file.buffer);
+    const parser = new PDFParse({ data: req.file.buffer,});
+    const pdfData = await parser.getText();
+    await parser.destroy();
+    const extractedText = pdfData.text;
 
     if (!extractedText) {
-      return sendError(res, 400, "Could not extract readable text strings from this PDF.");
+      return res.status(400).json({ success: false, message: "Could not extract readable text strings from this PDF.",
+});
     }
 
     // Issue #5: Consistent SSE Headers & Headers Flushing

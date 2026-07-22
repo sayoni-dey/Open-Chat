@@ -13,12 +13,45 @@ const MessageSchema = new mongoose.Schema(
       enum: ['user', 'assistant'],
       required: true,
     },
+    text : {
+      type: String,
+      required: true
+    },
+    // attachments: [
+    // {
+    //   fileName: String,
+    //   fileType: String, // e.g., 'image/png', 'application/pdf'
+    //   fileUrl: String,  // Local upload path (or S3 URL when migrating)
+    // }]
     attachments: [
-    {
-      fileName: String,
-      fileType: String, // e.g., 'image/png', 'application/pdf'
-      fileUrl: String,  // Local upload path (or S3 URL when migrating)
-    }]
+  {
+    type: {
+      type: String,
+      enum: ["image", "file"],
+      required: true,
+    },
+
+    fileName: {
+      type: String,
+      required: true,
+    },
+
+    mimeType: {
+      type: String,
+      required: true,
+    },
+
+    url: {
+      type: String,
+      required: true,
+    },
+
+    fileSize: {
+      type: Number,
+      required: true,
+    },
+  },
+]
 
   },
   { timestamps: true } // Automatically manages createdAt and updatedAt
