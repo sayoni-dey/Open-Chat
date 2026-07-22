@@ -52,11 +52,12 @@ router.post("/multimodal",
   upload.array("files", 5),
   handleMultimodalChat);
 
-router.post("/summarize-pdf", requireAuth,
-  // anonymousRateLimiter,
+router.post("/summarize-pdf",
+  optionalAuth,
+  anonymousRateLimiter,
   groqModelRateLimiter(QWEN_VISION_LIMITS),
-   upload.single("pdf"),
-   handlePDFSummary);
+  upload.single("pdf"),
+  handlePDFSummary);
 
 
 

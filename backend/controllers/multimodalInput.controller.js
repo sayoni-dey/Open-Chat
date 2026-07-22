@@ -150,46 +150,6 @@ export const handleMultimodalChat = async (req, res) => {
       attachments: uploadedAttachments,
     });
 
-  //   // --- STEP 5: REBUILD SLIDING CONVERSATION HISTORY FROM MONGO DB ---
-  // // Fetch only the most recent N messages in reverse-chronological order, then reverse back
-  // const recentDbMessages = await Message.find({ chatId: activeChatId })
-  //   .sort({ createdAt: -1 })
-  //   .limit(MAX_CONTEXT_MESSAGES)
-  //   .lean();
-
-  // // Reverse array so messages are in chronological order (Oldest -> Newest) for the LLM payload
-  // const dbMessages = recentDbMessages.reverse();
-
-  // // Construct LLM payload from the truncated message context window
-  // const llmPayloadMessages = dbMessages.map((msg) => {
-  //   if (msg.role === "user" && msg.attachments && msg.attachments.length > 0) {
-  //     const contentArray = [];
-
-  //     if (msg.content) {
-  //       contentArray.push({ type: "text", text: msg.content });
-  //     }
-
-  //     msg.attachments.forEach((att) => {
-  //       if (att.type === "image" && att.url) {
-  //         contentArray.push({
-  //           type: "image_url",
-  //           image_url: { url: att.url },
-  //         });
-  //       }
-  //     });
-
-  //     return {
-  //       role: msg.role,
-  //       content: contentArray,
-  //     };
-  //   }
-
-  //   return {
-  //     role: msg.role,
-  //     content: msg.content,
-  //   };
-  // });
-
   // --- STEP 5: REBUILD SLIDING CONVERSATION HISTORY FROM MONGO DB ---
   // Fetch only the most recent N messages in reverse-chronological order, then reverse back
   const recentDbMessages = await Message.find({ chatId: activeChatId })
@@ -300,148 +260,23 @@ export const handleMultimodalChat = async (req, res) => {
 };
 
 // ============================================================================
-// FEATURE 1: MULTIMODAL IN-CHAT FLOW (Text + Images + Context Memory)
-// ============================================================================
-// export const handleMultimodalChat = async (req, res) => {
-//   const abortController = new AbortController();
-
-//   // Issue #7: Abort ongoing Groq request if the client disconnects prematurely
-//   req.on("close", () => {
-//     if (!res.writableEnded) {
-//       abortController.abort();
-//       console.log("Client disconnected from multimodal chat stream.");
-//     }
-//   });
-
-//   try {
-//     const { chatId, messageText } = req.body;
-//     const files = req.files || [];
-
-//     if (!chatId) {
-//       return sendError(res, 400, "chatId is required.");
-//     }
-
-//     // Issue #3: Strict File Validation
-//     if (files.length > MAX_FILE_COUNT) {
-//       return sendError(res, 400, `Maximum ${MAX_FILE_COUNT} attachments permitted per message.`);
-//     }
-
-//     for (const file of files) {
-//       if (file.size > MAX_FILE_SIZE_BYTES) {
-//         return sendError(res, 400, `File '${file.originalname}' exceeds maximum allowed size of 10MB.`);
-//       }
-//       if (!ALLOWED_IMAGE_TYPES.includes(file.mimetype)) {
-//         return sendError(res, 400, `File type '${file.mimetype}' is not supported. Only JPEG, PNG, WEBP, and GIF are allowed.`);
-//       }
-//     }
-
-//     // Construct user content payload for Groq Vision API
-//     const userContentPayload = [];
-//     if (messageText && messageText.trim()) {
-//       userContentPayload.push({ type: "text", text: messageText.trim() });
-//     }
-
-//     files.forEach((file) => {
-//       const base64Image = file.buffer.toString("base64");
-//       userContentPayload.push({
-//         type: "image_url",
-//         image_url: { url: `data:${file.mimetype};base64,${base64Image}` },
-//       });
-//     });
-
-//     if (userContentPayload.length === 0) {
-//       return sendError(res, 400, "Cannot send an empty message without attachments.");
-//     }
-
-//     // Issue #1: Fetch Chat History from MongoDB
-//     const previousMessages = await Message.find({ chatId }).sort({ createdAt: 1 }).lean(); // [cite: 539]
-
-//     // Format previous messages for Groq completion payload
-//     const conversationHistory = previousMessages.map((msg) => ({
-//       role: msg.role,
-//       content: msg.content,
-//     }));
-
-//     // Append current multimodal prompt
-//     const messagesPayload = [
-//       ...conversationHistory,
-//       { role: "user", content: userContentPayload },
-//     ];
-
-//     // Issue #2: Save User Message with Production Metadata
-//     const attachmentsMetadata = files.map((f) => ({
-//       fileName: f.originalname,
-//       fileType: f.mimetype,
-//       fileSize: f.size,
-//       storageUrl: null, // Populate if storing files in cloud storage like AWS S3 or Cloudinary
-//     }));
-
-//     await Message.create({
-//       chatId,
-//       role: "user",
-//       content: messageText || "",
-//       attachments: attachmentsMetadata,
-//     });
-
-//     // Issue #5: Consistent SSE Headers and Header Flushing
-//     res.setHeader("Content-Type", "text/event-stream");
-//     res.setHeader("Cache-Control", "no-cache");
-//     res.setHeader("Connection", "keep-alive");
-//     res.flushHeaders?.();
-
-//     // Query Groq Multimodal Vision Endpoint
-//     const stream = await groq.chat.completions.create(
-//       {
-//         model: "qwen/qwen3.6-27b",
-//         messages: messagesPayload,
-//         stream: true,
-//       },
-//       { signal: abortController.signal }
-//     );
-
-//     let completeAssistantResponse = "";
-
-//     for await (const chunk of stream) {
-//       const textChunk = chunk.choices[0]?.delta?.content || "";
-//       completeAssistantResponse += textChunk;
-//       res.write(`data: ${JSON.stringify({ chunk: textChunk })}\n\n`);
-//     }
-
-//     // Save Assistant Response to MongoDB
-//     await Message.create({
-//       chatId,
-//       role: "assistant",
-//       content: completeAssistantResponse,
-//     });
-
-//     res.write("data: [DONE]\n\n");
-//     res.end();
-//   } catch (error) {
-//     if (error.name === "AbortError") {
-//       console.log("Groq request aborted successfully.");
-//       return;
-//     }
-//     console.error("Multimodal routing error:", error);
-//     // Issue #6: Consistent SSE Error Handling
-//     sendError(res, 500, error.message || "An unexpected streaming error occurred.");
-//   }
-// };
-
-
-
-// ============================================================================
 // FEATURE 2: ISOLATED PDF SUMMARIZER ROUTE (Map-Reduce Summarization)
 // ============================================================================
 export const handlePDFSummary = async (req, res) => {
   const abortController = new AbortController();
 
-  // Issue #7: Abort ongoing Groq request if client disconnects mid-summarization
-  req.on("close", () => {
-    if (!res.writableEnded) {
-      abortController.abort();
-      console.log("Client disconnected from PDF summarization stream.");
-    }
-  });
+  // // Issue #7: Abort ongoing Groq request if client disconnects mid-summarization
+  // req.on("close", () => {
+  //   if (!res.writableEnded) {
+  //     abortController.abort();
+  //     console.log("Client disconnected from PDF summarization stream.");
+  //   }
+  // });
+
+  req.on("aborted", () => {
+  console.log("Request aborted by client.");
+  abortController.abort();
+});
 
   try {
     // Issue #3: File Validation for PDF
@@ -457,6 +292,12 @@ export const handlePDFSummary = async (req, res) => {
       return sendError(res, 400, "PDF file exceeds maximum allowed size of 20MB.");
     }
 
+    // Issue #5: Consistent SSE Headers & Headers Flushing
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
     // Parse text fragments from RAM buffer
     // const pdfData = await PDFParse(req.file.buffer);
     const parser = new PDFParse({ data: req.file.buffer,});
@@ -468,12 +309,6 @@ export const handlePDFSummary = async (req, res) => {
       return res.status(400).json({ success: false, message: "Could not extract readable text strings from this PDF.",
 });
     }
-
-    // Issue #5: Consistent SSE Headers & Headers Flushing
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders?.();
 
     // Issue #4: Large PDF Handling (Text Chunking / Map-Reduce)
     const chunks = chunkText(extractedText);

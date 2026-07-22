@@ -8,10 +8,11 @@ import {redis} from "../config/redis.js";
 export const optionalAuth = (req, res, next) => {
   try {
     const auth = getAuth(req);
-    req.auth = auth;
+    const { userId } = auth;
+    req.userId = userId;
     next();
   } catch (error) {
-    req.auth = { userId: null };
+    req.userId = null;
     next();
   }
 };
@@ -23,7 +24,7 @@ export const optionalAuth = (req, res, next) => {
  */
 export const anonymousRateLimiter = async (req, res, next) => {
   // If user is logged in via Clerk, skip anonymous rate limiting
-  if (req.auth && req.auth.userId) {
+  if (req.userId) {
     console.log('User Authenticated');
     return next();
   }
